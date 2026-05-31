@@ -1,0 +1,222 @@
+#include <stdlib.h>
+#include <stdio.h>
+#include "board.h"
+
+/* ── Lifecycle ───────────────────────────────────────────── */
+
+Board *board_create(int width, int height, int depth) {
+    Board *b = malloc(sizeof(Board));
+    if (!b) return NULL;
+
+    b->width          = width;
+    b->height         = height;
+    b->depth          = depth;
+    b->total_mines    = 0;
+    b->revealed_count = 0;
+    b->safe_count     = width * height * depth;
+    b->debug_mode     = false;
+    b->seed           = 0;
+
+    b->cells = malloc((size_t)(width * height * depth) * sizeof(Cell));
+    if (!b->cells) { free(b); return NULL; }
+
+    for (int i = 0; i < width * height * depth; i++)
+        cell_init(&b->cells[i]);
+
+    DBG("created %dx%dx%d (%d cells)", width, height, depth,
+        width * height * depth);
+    return b;
+}
+
+void board_free(Board *b) {
+    if (!b) return;
+    free(b->cells);
+    free(b);
+}
+
+/* ── Setup ───────────────────────────────────────────────── */
+
+void board_place_mines(Board *b, int count, unsigned int seed) {
+    int total = b->width * b->height * b->depth;
+    if (count > total) count = total;
+
+    b->seed        = seed;
+    b->total_mines = count;
+    b->safe_count  = total - count;
+
+    srand(seed);
+
+    /* Fisher-Yates: shuffle indices, pick first `count` as mine positions */
+    int *idx = malloc((size_t)total * sizeof(int));
+    for (int i = 0; i < total; i++) idx[i] = i;
+    for (int i = total - 1; i > 0; i--) {
+        int j   = rand() % (i + 1);
+        int tmp = idx[i]; idx[i] = idx[j]; idx[j] = tmp;
+    }
+    for (int i = 0; i < count; i++)
+        b->cells[idx[i]].has_mine = true;
+
+    free(idx);
+    DBG("placed %d mines, seed=%u", count, seed);
+}
+
+void board_compute_adjacent(Board *b) {
+    for (int x = 0; x < b->width;  x++)
+    for (int y = 0; y < b->height; y++)
+    for (int z = 0; z < b->depth;  z++) {
+        Cell *c = &CELL_AT(b, x, y, z);
+        if (c->has_mine) { c->adjacent = -1; continue; }
+
+        int n = 0;
+        for (int dx = -1; dx <= 1; dx++)
+        for (int dy = -1; dy <= 1; dy++)
+        for (int dz = -1; dz <= 1; dz++) {
+            if (!dx && !dy && !dz) continue;
+            int nx = x + dx, ny = y + dy, nz = z + dz;
+            if (IN_BOUNDS(b, nx, ny, nz) && CELL_AT(b, nx, ny, nz).has_mine)
+                n++;
+        }
+        c->adjacent = n;   /* 0–26 */
+    }
+    DBG("adjacent values computed");
+}
+
+/* ── Gameplay ────────────────────────────────────────────── */
+
+bool board_reveal(Board *b, int x, int y, int z) {
+    if (!IN_BOUNDS(b, x, y, z)) return false;
+
+    Cell *start = &CELL_AT(b, x, y, z);
+    if (start->state != CELL_HIDDEN) return false;
+
+    if (start->has_mine) {
+        start->state = CELL_REVEALED;
+        DBG("MINE hit at (%d,%d,%d)", x, y, z);
+        return true;
+    }
+
+    /* BFS flood fill — expands through cells where adjacent == 0 */
+    int   total  = b->width * b->height * b->depth;
+    int  *queue  = malloc((size_t)total * sizeof(int));
+    int   head   = 0, tail = 0;
+
+    start->state = CELL_REVEALED;
+    b->revealed_count++;
+    queue[tail++] = x * b->height * b->depth + y * b->depth + z;
+
+    while (head < tail) {
+        int flat = queue[head++];
+        int cx   =  flat / (b->height * b->depth);
+        int cy   = (flat /  b->depth) % b->height;
+        int cz   =  flat %  b->depth;
+
+        if (CELL_AT(b, cx, cy, cz).adjacent != 0) continue;  /* numbered: stop here */
+
+        for (int dx = -1; dx <= 1; dx++)
+        for (int dy = -1; dy <= 1; dy++)
+        for (int dz = -1; dz <= 1; dz++) {
+            if (!dx && !dy && !dz) continue;
+            int nx = cx + dx, ny = cy + dy, nz = cz + dz;
+            if (!IN_BOUNDS(b, nx, ny, nz)) continue;
+            Cell *nc = &CELL_AT(b, nx, ny, nz);
+            if (nc->state != CELL_HIDDEN || nc->has_mine) continue;
+            nc->state = CELL_REVEALED;
+            b->revealed_count++;
+            queue[tail++] = nx * b->height * b->depth + ny * b->depth + nz;
+        }
+    }
+
+    free(queue);
+    DBG("reveal (%d,%d,%d): revealed_count=%d/%d",
+        x, y, z, b->revealed_count, b->safe_count);
+    return false;
+}
+
+void board_flag(Board *b, int x, int y, int z) {
+    if (!IN_BOUNDS(b, x, y, z)) return;
+    Cell *c = &CELL_AT(b, x, y, z);
+    if (c->state == CELL_REVEALED) return;
+    c->state = (c->state == CELL_FLAGGED) ? CELL_HIDDEN : CELL_FLAGGED;
+    DBG("flag (%d,%d,%d): now %s", x, y, z,
+        c->state == CELL_FLAGGED ? "FLAGGED" : "HIDDEN");
+}
+
+/* ── Debug ───────────────────────────────────────────────── */
+
+static char cell_char(const Cell *c, bool show_all) {
+    if (show_all && c->has_mine)
+        return c->state == CELL_REVEALED ? 'X' :   /* stepped-on mine  */
+               c->state == CELL_FLAGGED  ? 'F' : '*'; /* visible mine   */
+    switch (c->state) {
+        case CELL_HIDDEN:   return '#';
+        case CELL_FLAGGED:  return 'F';
+        case CELL_REVEALED:
+            if (c->has_mine)      return 'X';
+            if (c->adjacent == 0) return '.';
+            return (char)('0' + c->adjacent);
+    }
+    return '?';
+}
+
+void board_debug_print_layer(const Board *b, int z) {
+    printf("  z=%-2d  ", z);
+    for (int x = 0; x < b->width; x++) printf("%2d", x);
+    printf("\n");
+    for (int y = 0; y < b->height; y++) {
+        printf("  y=%-2d  ", y);
+        for (int x = 0; x < b->width; x++)
+            printf(" %c", cell_char(&CELL_AT(b, x, y, z), b->debug_mode));
+        printf("\n");
+    }
+}
+
+void board_debug_print(const Board *b) {
+    printf("Board %dx%dx%d | mines:%d | revealed:%d/%d | seed:%u | debug:%s\n",
+           b->width, b->height, b->depth,
+           b->total_mines, b->revealed_count, b->safe_count,
+           b->seed, b->debug_mode ? "ON" : "OFF");
+    for (int z = 0; z < b->depth; z++) {
+        board_debug_print_layer(b, z);
+        printf("\n");
+    }
+}
+
+void board_debug_set_mine(Board *b, int x, int y, int z, bool val) {
+    if (!IN_BOUNDS(b, x, y, z)) return;
+    Cell *c = &CELL_AT(b, x, y, z);
+    if (c->has_mine == val) return;
+    c->has_mine = val;
+    if (val) { b->total_mines++; b->safe_count--; }
+    else     { b->total_mines--; b->safe_count++; }
+    DBG("set_mine (%d,%d,%d)=%s, total_mines=%d",
+        x, y, z, val ? "MINE" : "safe", b->total_mines);
+}
+
+void board_debug_place_pattern(Board *b, const int mines[][3], int count) {
+    int total = b->width * b->height * b->depth;
+    for (int i = 0; i < total; i++) b->cells[i].has_mine = false;
+    b->total_mines = 0;
+    b->safe_count  = total;
+
+    for (int i = 0; i < count; i++)
+        board_debug_set_mine(b, mines[i][0], mines[i][1], mines[i][2], true);
+
+    DBG("place_pattern: %d mines placed", b->total_mines);
+}
+
+void board_expose_mines(Board *b) {
+    int total = b->width * b->height * b->depth;
+    for (int i = 0; i < total; i++)
+        if (b->cells[i].has_mine && b->cells[i].state == CELL_HIDDEN)
+            b->cells[i].state = CELL_REVEALED;
+    DBG("mines exposed");
+}
+
+void board_debug_reveal_all(Board *b) {
+    int total = b->width * b->height * b->depth;
+    for (int i = 0; i < total; i++)
+        if (b->cells[i].state == CELL_HIDDEN)
+            b->cells[i].state = CELL_REVEALED;
+    b->revealed_count = b->safe_count;
+    DBG("reveal_all done");
+}
