@@ -211,7 +211,7 @@ void board_expose_mines(Board *b) {
             b->cells[i].state = CELL_REVEALED;
     DBG("mines exposed");
 }
-
+/*
 void board_debug_reveal_all(Board *b) {
     int total = b->width * b->height * b->depth;
     for (int i = 0; i < total; i++)
@@ -220,3 +220,4 @@ void board_debug_reveal_all(Board *b) {
     b->revealed_count = b->safe_count;
     DBG("reveal_all done");
 }
+*/

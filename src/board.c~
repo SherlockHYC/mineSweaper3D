@@ -142,11 +142,11 @@ void board_flag(Board *b, int x, int y, int z) {
 }
 
 /* ── Debug ───────────────────────────────────────────────── */
-
+/*
 static char cell_char(const Cell *c, bool show_all) {
     if (show_all && c->has_mine)
-        return c->state == CELL_REVEALED ? 'X' :   /* stepped-on mine  */
-               c->state == CELL_FLAGGED  ? 'F' : '*'; /* visible mine   */
+        return c->state == CELL_REVEALED ? 'X' :   // stepped-on mine
+               c->state == CELL_FLAGGED  ? 'F' : '*'; // visible mine
     switch (c->state) {
         case CELL_HIDDEN:   return '#';
         case CELL_FLAGGED:  return 'F';
@@ -157,7 +157,7 @@ static char cell_char(const Cell *c, bool show_all) {
     }
     return '?';
 }
-/*
+
 void board_debug_print_layer(const Board *b, int z) {
     printf("  z=%-2d  ", z);
     for (int x = 0; x < b->width; x++) printf("%2d", x);
