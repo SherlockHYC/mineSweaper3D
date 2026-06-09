@@ -229,12 +229,29 @@ void render_frame(const Game *g, int cur_x, int cur_y, int cur_z) {
         mvprintw(row, 0, "  *** BOOM!  Game over ***");
         attroff(COLOR_PAIR(CP_LOSE) | A_BOLD);
     }
-    row += 2;
+    row++;
 
-    /* ── Flat layer view: cur_z-1, cur_z, cur_z+1 side by side ── */
+    /* ── Controls ── */
+    mvprintw(row,     0, "wasd/arrows:move x,y  <,>:z  SPC:reveal  f:flag  x:debug  r:settings  q:quit");
+    mvprintw(row + 1, 0, "Cursor:(%d,%d,%d)  Legend: #=hidden F=flag .=0 1-9=adj A-Q=adj(10-26) X=mine *=mine(debug)",
+             cur_x, cur_y, cur_z);
+    row += 3;
+
+    /* ── 3D iso (left) + flat layers (right, horizontal) ── */
     {
         int layer_w = 5 + b->width * 2;
         int gap     = 3;
+
+        /* 3D iso on the left */
+        attron(A_BOLD);
+        mvprintw(row, 2, "3D  top=z%d front=y%d side=x%d bold=z%d",
+                 b->depth-1, b->height-1, b->width-1, cur_z);
+        attroff(A_BOLD);
+        render_iso_section(b, cur_x, cur_y, cur_z, row + 1, 2, show);
+
+        /* Flat layers to the right of the iso view */
+        int iso_w    = (b->width + b->height - 2) * 2 + 2;
+        int flat_col = 2 + iso_w + gap;
 
         /* Build the list of up to 3 z-layers to display */
         int zs[3], nz = 0;
@@ -242,15 +259,15 @@ void render_frame(const Game *g, int cur_x, int cur_y, int cur_z) {
         zs[nz++] = cur_z;
         if (cur_z < b->depth-1) zs[nz++] = cur_z + 1;
 
-        /* Headers + x-axis */
+        /* Headers + x-axis: shifted down 1 to avoid overlapping the 3D label */
         for (int i = 0; i < nz; i++) {
             int z   = zs[i];
-            int col = 2 + i * (layer_w + gap);
+            int col = flat_col + i * (layer_w + gap);
             int ha  = (z == cur_z) ? A_BOLD | A_UNDERLINE : A_NORMAL;
             attron(ha);
-            mvprintw(row, col, "[z=%d]", z);
+            mvprintw(row + 1, col, "[z=%d]", z);
             attroff(ha);
-            mvprintw(row + 1, col, "     ");
+            mvprintw(row + 2, col, "     ");
             for (int x = 0; x < b->width; x++) printw("%2d", x);
         }
 
@@ -258,8 +275,8 @@ void render_frame(const Game *g, int cur_x, int cur_y, int cur_z) {
         for (int y = 0; y < b->height; y++) {
             for (int i = 0; i < nz; i++) {
                 int z   = zs[i];
-                int col = 2 + i * (layer_w + gap);
-                mvprintw(row + 2 + y, col, "y=%-2d", y);
+                int col = flat_col + i * (layer_w + gap);
+                mvprintw(row + 3 + y, col, "y=%-2d", y);
                 for (int x = 0; x < b->width; x++) {
                     const Cell *c  = &CELL_AT(b, x, y, z);
                     bool        ic = (x == cur_x && y == cur_y && z == cur_z);
@@ -268,24 +285,10 @@ void render_frame(const Game *g, int cur_x, int cur_y, int cur_z) {
             }
         }
 
-        row += 2 + b->height + 1;
+        int flat_rows = 3 + b->height;   /* 3D label row + [z] header + x-axis + data */
+        int iso_rows  = 1 + iso_section_height(b);
+        row += (flat_rows > iso_rows ? flat_rows : iso_rows) + 1;
     }
-
-    /* ── 3D isometric cube overview ── */
-    attron(A_BOLD);
-    mvprintw(row, 0,
-        "3D View  top=z%d | front=y%d | side=x%d | bold=z%d",
-        b->depth-1, b->height-1, b->width-1, cur_z);
-    attroff(A_BOLD);
-    row++;
-
-    render_iso_section(b, cur_x, cur_y, cur_z, row, 2, show);
-    row += iso_section_height(b) + 1;
-
-    /* ── Footer ── */
-    mvprintw(row,     0, "wasd/arrows:move x,y  <,>:z  SPC:reveal  f:flag  x:debug  r:settings  q:quit");
-    mvprintw(row + 1, 0, "Cursor:(%d,%d,%d)  Legend: #=hidden F=flag .=0 1-9=adj A-Q=adj(10-26) X=mine *=mine(debug)",
-             cur_x, cur_y, cur_z);
 
     refresh();
 }
