@@ -249,6 +249,14 @@ void render_frame(const Game *g, int cur_x, int cur_y, int cur_z) {
         attroff(A_BOLD);
         render_iso_section(b, cur_x, cur_y, cur_z, row + 1, 2, show);
 
+        /* z-axis labels to the left of the iso view (col 0, 2 chars wide) */
+        for (int bz = 0; bz < b->depth; bz++) {
+            int lrow = (row + 1) + (b->height - 1) + (b->depth - 1 - bz) * 2;
+            attron(bz == cur_z ? A_BOLD : A_DIM);
+            mvprintw(lrow, 0, "z%d", bz);
+            attroff(bz == cur_z ? A_BOLD : A_DIM);
+        }
+
         /* Flat layers to the right of the iso view */
         int iso_w    = (b->width + b->height - 2) * 2 + 2;
         int flat_col = 2 + iso_w + gap;
