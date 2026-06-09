@@ -35,6 +35,9 @@
 - <time.h>
 ### 需另外安裝
 - <ncurses.h>
+  ```bash
+  sudo apt install libncurses-dev
+  ```
 
 ## 編譯
 ```bash
